@@ -1,12 +1,22 @@
+# Core
 streamlit
 pandas
 numpy
-seaborn
+scikit-learn
+openpyxl
+
+# Visualization
 matplotlib
-textblob
-pyttsx3
-SpeechRecognition
-openai
+seaborn
+
+# Optional enhancements (e.g., for natural language summaries)
+transformers
+torch
+sentence-transformers
+
+# For web scraping and missing data autofill (if used)
 requests
 beautifulsoup4
-openpyxl
+
+# (Optional) For text-to-speech or speech support if desired
+pyttsx3
