@@ -1,129 +1,111 @@
+# arthur_app.py
+
+# -------------------- Imports --------------------
 import streamlit as st
 import pandas as pd
 import numpy as np
-import seaborn as sns
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from textblob import TextBlob
-import pyttsx3
-import speech_recognition as sr
-import openai
-import os
+import seaborn as sns
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
+from sklearn.preprocessing import LabelEncoder
 
-# Set page theme
-theme = st.sidebar.radio("Select Theme:", ("Light", "Dark"))
+# -------------------- Page Configuration (FIRST Streamlit command) --------------------
+st.set_page_config(
+    page_title="Arthur - AI Excel Analyzer",
+    page_icon="📊",
+    layout="wide"
+)
+
+# -------------------- Optional: Dark Theme Styling --------------------
+theme = "Dark"  # You can change this to "Light" or make it dynamic later
 if theme == "Dark":
-    st.markdown("""<style>body { background-color: #0e1117; color: white; }</style>""", unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+            body {
+                background-color: #0e1117;
+                color: white;
+            }
+        </style>
+    """, unsafe_allow_html=True)
 
-st.set_page_config(page_title="Arthur - AI Excel Analyzer", layout="wide")
+# -------------------- Title --------------------
 st.title("🤖 Arthur - Your AI Excel Data Assistant")
 
-# Text-to-speech engine
-engine = pyttsx3.init()
-def speak(text):
-    engine.say(text)
-    engine.runAndWait()
+# -------------------- File Upload --------------------
+uploaded_file = st.file_uploader("📂 Upload your Excel file", type=["xlsx", "xls"])
 
-# Speech recognition
-def transcribe_speech():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.info("Listening...")
-        audio = r.listen(source)
+# -------------------- Main Logic --------------------
+if uploaded_file is not None:
     try:
-        return r.recognize_google(audio)
-    except:
-        return "Sorry, couldn't understand."
+        df = pd.read_excel(uploaded_file)
+        st.success("✅ File uploaded and read successfully!")
 
-# Load Excel
-@st.cache_data
-def load_excel(file):
-    return pd.read_excel(file, engine='openpyxl')
+        # Show raw data
+        with st.expander("📄 View Raw Data"):
+            st.dataframe(df)
 
-# Descriptive stats
-@st.cache_data
-def describe_data(df):
-    return df.describe()
+        # -------------------- Step 1: Handle Missing Data --------------------
+        st.subheader("🧼 Step 1: Handling Missing Data")
+        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
-# Correlation matrix
-@st.cache_data
-def compute_correlation(df):
-    return df.corr()
+        if numeric_cols:
+            imputer_num = SimpleImputer(strategy='mean')
+            df[numeric_cols] = imputer_num.fit_transform(df[numeric_cols])
 
-# Sentiment analysis
-@st.cache_data
-def compute_sentiment(column):
-    def analyze_sentiment(text):
-        try:
-            return TextBlob(str(text)).sentiment.polarity
-        except:
-            return 0
-    return column.dropna().apply(analyze_sentiment)
+        if cat_cols:
+            imputer_cat = SimpleImputer(strategy='most_frequent')
+            df[cat_cols] = imputer_cat.fit_transform(df[cat_cols])
 
-# --- Chatbot interface appears first ---
-st.header("💬 Chat with Arthur")
+        st.success("✅ Missing values filled.")
 
-user_input = st.text_input("Ask Arthur a question about your data:")
-if user_input:
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a helpful data assistant named Arthur."},
-                {"role": "user", "content": user_input}
-            ]
-        )
-        reply = response['choices'][0]['message']['content']
-        st.markdown(f"**Arthur:** {reply}")
-        speak(reply)
+        # -------------------- Step 2: Descriptive Statistics --------------------
+        st.subheader("📊 Step 2: Descriptive Statistics")
+        st.write(df.describe())
+
+        # -------------------- Step 3: Natural Language Summary --------------------
+        st.subheader("🧠 Step 3: AI Summary")
+        st.write(f"Your dataset has **{df.shape[0]} rows** and **{df.shape[1]} columns**.")
+        st.write(f"Numeric columns: {len(numeric_cols)} | Categorical columns: {len(cat_cols)}")
+        st.write("Here's a quick insight: Most columns are now clean and ready for analysis.")
+
+        # -------------------- Step 4: Data Visualization --------------------
+        st.subheader("📈 Step 4: Data Visualization")
+        col_to_plot = st.selectbox("Choose a numeric column to visualize", numeric_cols)
+        if col_to_plot:
+            fig, ax = plt.subplots()
+            sns.histplot(df[col_to_plot], kde=True, ax=ax)
+            st.pyplot(fig)
+
+        # -------------------- Step 5: Predictive Analytics --------------------
+        st.subheader("🤖 Step 5: Predictive Analytics")
+        target = st.selectbox("Select a numeric target variable to predict", numeric_cols)
+
+        if target:
+            df_model = df.copy()
+            X = df_model.drop(columns=[target])
+            y = df_model[target]
+
+            for col in X.select_dtypes(include='object').columns:
+                X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            model = RandomForestRegressor()
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            r2 = r2_score(y_test, y_pred)
+
+            st.write(f"Model R² Score: **{r2:.2f}**")
+            st.success("✅ Prediction completed using RandomForest.")
+
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"❌ Error reading file: {e}")
+else:
+    st.info("👈 Please upload an Excel file to get started.")
 
-# Upload Excel file
-st.header("📂 Upload Excel File")
-uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
-
-if uploaded_file:
-    df = load_excel(uploaded_file)
-    st.success("File uploaded successfully!")
-    speak("File uploaded")
-
-    if st.checkbox("Show raw data"):
-        st.dataframe(df.head(100))
-
-    # Descriptive
-    st.subheader("📊 Descriptive Analysis")
-    num_cols = df.select_dtypes(include=np.number).columns.tolist()
-    if num_cols:
-        st.write(describe_data(df[num_cols]))
-        st.subheader("Correlation Heatmap")
-        fig, ax = plt.subplots()
-        sns.heatmap(compute_correlation(df[num_cols]), annot=True, cmap='coolwarm', ax=ax)
-        st.pyplot(fig)
-
-    # Sentiment
-    text_cols = df.select_dtypes(include='object').columns.tolist()
-    if text_cols:
-        st.subheader("📝 Sentiment Analysis")
-        selected_col = st.selectbox("Select text column", text_cols)
-        df['sentiment'] = compute_sentiment(df[selected_col])
-        st.write(df[[selected_col, 'sentiment']].head())
-
-        fig2, ax2 = plt.subplots()
-        sns.histplot(df['sentiment'], bins=20, ax=ax2)
-        st.pyplot(fig2)
-
-    # Suggestions
-    st.subheader("💡 Prescriptive Suggestions")
-    suggestions = []
-    if 'sentiment' in df.columns and df['sentiment'].mean() < 0:
-        suggestions.append("Overall sentiment is negative. Investigate customer feedback.")
-    if suggestions:
-        for s in suggestions:
-            st.warning(s)
-            speak(s)
-    else:
-        st.info("No major issues detected.")
-        speak("No major issues detected.")
+# -------------------- Footer --------------------
+st.markdown("---")
+st.markdown("Made with ❤️ by Arthur AI")
