@@ -3,107 +3,104 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pytesseract
+from PIL import Image
+import io
+import base64
+import openai
+import os
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
-from transformers import pipeline
-import pyttsx3
-import requests
-from bs4 import BeautifulSoup
 
-# -------------------- Page Config --------------------
+# -------------------- PAGE CONFIG --------------------
 st.set_page_config(
     layout="wide",
     page_title="Arthur - AI Excel Analyzer",
     page_icon="📊"
 )
 
+# -------------------- HEADER --------------------
 st.title("🤖 Arthur - Your AI Excel Data Assistant")
 
-# -------------------- File Upload --------------------
-uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
-
+# -------------------- Upload Excel File --------------------
+uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx", "xls"])
 if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-
-    st.subheader("📄 Uploaded Data Preview")
-    st.dataframe(df.head())
-
-    # -------------------- Natural Language Summary --------------------
-    def generate_summary(df):
-        description = []
-
-        description.append(f"The dataset contains {df.shape[0]} rows and {df.shape[1]} columns.")
-        num_cols = df.select_dtypes(include=['number']).columns
-        cat_cols = df.select_dtypes(exclude=['number']).columns
-
-        description.append(f"There are {len(num_cols)} numerical columns and {len(cat_cols)} categorical/text columns.")
-
-        if df.isnull().sum().sum() > 0:
-            missing_info = df.isnull().sum()
-            top_missing = missing_info[missing_info > 0].sort_values(ascending=False).head(3)
-            missing_summary = ", ".join([f"{col} ({val} missing)" for col, val in top_missing.items()])
-            description.append(f"Top columns with missing data: {missing_summary}")
-        else:
-            description.append("There are no missing values in the dataset.")
-
-        prompt = " ".join(description) + " Summarize this dataset in one paragraph."
-        summarizer = pipeline("text2text-generation", model="google/flan-t5-small", max_length=150)
-        summary = summarizer(prompt)[0]['generated_text']
-
-        return summary
-
-    st.subheader("🧠 AI Summary of Your Data")
-    summary = generate_summary(df)
-    st.write(summary)
-
-    # -------------------- Data Visualization --------------------
-    st.subheader("📊 Correlation Heatmap")
-    if len(df.select_dtypes(include='number').columns) >= 2:
-        corr = df.select_dtypes(include='number').corr()
-        fig, ax = plt.subplots()
-        sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
-        st.pyplot(fig)
-
-    # -------------------- Predictive Analytics --------------------
-    st.subheader("📈 Predictive Modeling")
-    numeric_cols = df.select_dtypes(include='number').columns
-    if len(numeric_cols) >= 2:
-        target_col = st.selectbox("Select the column to predict", numeric_cols)
-        features = df[numeric_cols].drop(columns=[target_col])
-        target = df[target_col]
-
-        imputer = SimpleImputer(strategy='mean')
-        features_imputed = imputer.fit_transform(features)
-        target_imputed = SimpleImputer(strategy='mean').fit_transform(target.values.reshape(-1, 1)).ravel()
-
-        X_train, X_test, y_train, y_test = train_test_split(features_imputed, target_imputed, test_size=0.2, random_state=42)
-        model = RandomForestRegressor()
-        model.fit(X_train, y_train)
-        predictions = model.predict(X_test)
-
-        st.write(f"Model R² score: {r2_score(y_test, predictions):.2f}")
-
-    # -------------------- Text-to-Speech Summary (Optional) --------------------
-    if st.checkbox("🔊 Read Summary Aloud"):
-        engine = pyttsx3.init()
-        engine.say(summary)
-        engine.runAndWait()
-
-    # -------------------- Missing Data Autofill (Web Placeholder) --------------------
-    st.subheader("🔍 Missing Data Info (Web Assisted Placeholder)")
-    if df.isnull().sum().sum() > 0:
-        try:
-            example_url = "https://www.investopedia.com/"
-            response = requests.get(example_url)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            headlines = [h.text for h in soup.find_all('h2')[:3]]
-            st.write("Example insights from Investopedia:")
-            for h in headlines:
-                st.markdown(f"- {h}")
-        except:
-            st.write("Could not fetch online data. Please check your internet or site availability.")
-
+    try:
+        df = pd.read_excel(uploaded_file)
+        st.success("File uploaded and read successfully!")
+        with st.expander("View Raw Data"):
+            st.dataframe(df)
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        df = None
 else:
-    st.info("👆 Upload an Excel file to get started.")
+    df = None
+
+# -------------------- Upload Image for OCR --------------------
+st.markdown("---")
+st.subheader("📷 Upload Image for Text Extraction (OCR)")
+image_file = st.file_uploader("Upload an image (screenshot, photo, etc.)", type=["png", "jpg", "jpeg"])
+if image_file:
+    try:
+        image = Image.open(image_file)
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+        extracted_text = pytesseract.image_to_string(image)
+        st.text_area("Extracted Text", extracted_text, height=150)
+    except Exception as e:
+        st.error(f"Failed to extract text from image: {e}")
+
+# -------------------- Step 1: Handle Missing Data --------------------
+if df is not None:
+    st.markdown("---")
+    st.subheader("🧼 Step 1: Handling Missing Data")
+
+    try:
+        imputer = SimpleImputer(strategy='mean')
+        df_imputed = df.copy()
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        df_imputed[numeric_cols] = imputer.fit_transform(df[numeric_cols])
+        st.success("Missing numeric values handled successfully!")
+        with st.expander("View Imputed Data"):
+            st.dataframe(df_imputed)
+    except Exception as e:
+        st.error(f"Missing Data Handling Error: {e}")
+
+# -------------------- Chat Interface (GPT-4 style) --------------------
+openai_api_key = st.secrets["openai_api_key"] if "openai_api_key" in st.secrets else os.getenv("OPENAI_API_KEY")
+
+if openai_api_key:
+    st.markdown("---")
+    st.subheader("💬 Arthur Chat - Ask Anything About Your Data")
+
+    user_prompt = st.text_input("Ask a question about your data or image...")
+
+    if user_prompt:
+        if df is not None:
+            df_preview = df.head(10).to_string()
+            context = f"Here is a preview of the uploaded Excel file:\n{df_preview}\n"
+        elif image_file:
+            context = f"Extracted text from uploaded image:\n{extracted_text}\n"
+        else:
+            context = "No file or image uploaded."
+
+        try:
+            openai.api_key = openai_api_key
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are Arthur, an AI Excel and OCR assistant."},
+                    {"role": "user", "content": context + "\nUser question: " + user_prompt}
+                ]
+            )
+            reply = response.choices[0].message['content']
+            st.markdown(f"**Arthur:** {reply}")
+        except Exception as e:
+            st.error(f"OpenAI API error: {e}")
+else:
+    st.warning("OpenAI API key not found. Please set it in Streamlit secrets or your environment.")
+
+# -------------------- Footer --------------------
+st.markdown("---")
+st.markdown("Made with ❤️ by Arthur AI")
