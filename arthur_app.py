@@ -14,9 +14,11 @@ from sklearn.preprocessing import LabelEncoder
 
 # -------------------- Page Configuration (FIRST Streamlit command) --------------------
 st.set_page_config(
-    layout="wide")
- st.set_page_title("Arthur - AI Excel Analyzer")
- st.set_page_icon("📊")
+    layout="wide",
+    page_title="Arthur - AI Excel Analyzer",
+    page_icon="📊"
+)
+
 
 # -------------------- Optional: Dark Theme Styling --------------------
 theme = "Dark"  # You can change this to "Light" or make it dynamic later
