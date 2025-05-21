@@ -9,7 +9,6 @@ import io
 import base64
 import openai
 import os
-import json
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -18,82 +17,86 @@ from sklearn.metrics import r2_score
 # -------------------- PAGE CONFIG --------------------
 st.set_page_config(
     layout="wide",
-    page_title="Arthur - AI Data Analyzer",
+    page_title="Arthur",
     page_icon="📊"
 )
 
 # -------------------- HEADER --------------------
-st.title("🤖 Arthur - Your AI Data Assistant")
+st.markdown("""
+    <h1 style='text-align: center;'>🤖 Arthur</h1>
+""", unsafe_allow_html=True)
 
-# -------------------- Custom Chat + Upload UI --------------------
-st.markdown("---")
+# -------------------- Chat Interface + Upload --------------------
+openai_api_key = st.secrets["openai_api_key"] if "openai_api_key" in st.secrets else os.getenv("OPENAI_API_KEY")
+
+uploaded_file = None
+image_file = None
+
 col1, col2 = st.columns([10, 1])
-
 with col1:
-    user_input = st.text_input("Ready when you are", placeholder="Ask Arthur anything about your data...")
-
+    user_prompt = st.text_input("Ready when you are")
 with col2:
-    uploaded_file = st.file_uploader("", type=["xlsx", "xls", "csv", "txt", "json", "jpg", "jpeg", "png"], label_visibility="collapsed")
+    uploaded_file = st.file_uploader("", type=["xlsx", "xls", "csv", "json", "txt", "png", "jpg", "jpeg"], label_visibility="collapsed")
 
-# -------------------- Process Uploaded File --------------------
-data_context = ""
-dataframe = None
+context = ""
 extracted_text = ""
+df = None
 
-if uploaded_file:
-    file_type = uploaded_file.name.split(".")[-1].lower()
+if uploaded_file is not None:
     try:
-        if file_type in ["xlsx", "xls"]:
-            dataframe = pd.read_excel(uploaded_file)
-            data_context = dataframe.head(10).to_string()
-        elif file_type == "csv":
-            dataframe = pd.read_csv(uploaded_file)
-            data_context = dataframe.head(10).to_string()
-        elif file_type == "txt":
+        if uploaded_file.name.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(uploaded_file)
+            context = f"Here is a preview of the uploaded Excel file:\n{df.head(10).to_string()}\n"
+        elif uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+            context = f"Here is a preview of the uploaded CSV file:\n{df.head(10).to_string()}\n"
+        elif uploaded_file.name.endswith('.json'):
+            df = pd.read_json(uploaded_file)
+            context = f"Here is a preview of the uploaded JSON file:\n{df.head(10).to_string()}\n"
+        elif uploaded_file.name.endswith('.txt'):
             content = uploaded_file.read().decode("utf-8")
-            data_context = content
-        elif file_type == "json":
-            json_obj = json.load(uploaded_file)
-            data_context = json.dumps(json_obj, indent=2)
-        elif file_type in ["jpg", "jpeg", "png"]:
+            context = f"Here is the uploaded text:\n{content[:1000]}"
+        elif uploaded_file.name.endswith(('png', 'jpg', 'jpeg')):
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", use_column_width=True)
             extracted_text = pytesseract.image_to_string(image)
-            data_context = extracted_text
-        st.success("File processed successfully!")
+            st.image(image, caption="Uploaded Image", use_column_width=True)
+            context = f"Extracted text from image:\n{extracted_text}"
+            image_file = uploaded_file
     except Exception as e:
-        st.error(f"Failed to process file: {e}")
+        st.error(f"File processing error: {e}")
 
-# -------------------- Handle Missing Data --------------------
-if dataframe is not None:
+# Show uploaded DataFrame if available
+if df is not None:
+    with st.expander("View Uploaded Data"):
+        st.dataframe(df)
+
+# Handle missing data
+if df is not None:
     st.markdown("---")
-    st.subheader("🧼 Handling Missing Numeric Data")
+    st.subheader("🧼 Step 1: Handling Missing Data")
     try:
         imputer = SimpleImputer(strategy='mean')
-        df_imputed = dataframe.copy()
-        numeric_cols = dataframe.select_dtypes(include=[np.number]).columns
-        df_imputed[numeric_cols] = imputer.fit_transform(dataframe[numeric_cols])
+        df_imputed = df.copy()
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        df_imputed[numeric_cols] = imputer.fit_transform(df[numeric_cols])
         st.success("Missing numeric values handled successfully!")
-        with st.expander("View Cleaned Data"):
+        with st.expander("View Imputed Data"):
             st.dataframe(df_imputed)
-        data_context += "\n\nCleaned Data Preview:\n" + df_imputed.head(5).to_string()
     except Exception as e:
         st.error(f"Missing Data Handling Error: {e}")
 
-# -------------------- Arthur Chat (GPT-like) --------------------
-openai_api_key = st.secrets["openai_api_key"] if "openai_api_key" in st.secrets else os.getenv("OPENAI_API_KEY")
-
-if openai_api_key and user_input:
-    st.markdown("---")
-    st.subheader("💬 Arthur's Response")
-    context_block = data_context if data_context else "No data uploaded."
+# Chat with Arthur (with or without file)
+if openai_api_key and user_prompt:
     try:
         openai.api_key = openai_api_key
+        base_instruction = "You are Arthur, an AI assistant who specializes in finance, global economics, global market trading, global macroeconomics, and all tradable markets like forex, stocks, futures, and commodities. Respond with clear and accurate insights based only on your niche."
+        full_prompt = context + "\nUser question: " + user_prompt if context else user_prompt
+
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are Arthur, a smart AI data assistant. Answer the user's questions based on the context."},
-                {"role": "user", "content": f"Context:\n{context_block}\n\nQuestion:\n{user_input}"}
+                {"role": "system", "content": base_instruction},
+                {"role": "user", "content": full_prompt}
             ]
         )
         reply = response.choices[0].message['content']
@@ -101,9 +104,6 @@ if openai_api_key and user_input:
     except Exception as e:
         st.error(f"OpenAI API error: {e}")
 
-elif not openai_api_key:
-    st.warning("OpenAI API key not found. Please set it in Streamlit secrets or your environment.")
-
-# -------------------- Footer --------------------
+# Footer
 st.markdown("---")
 st.markdown("Made with ❤️ by Arthur AI")
