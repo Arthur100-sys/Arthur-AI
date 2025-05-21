@@ -27,51 +27,50 @@ st.markdown("""
     <h1 style='text-align: center;'>🤖 Arthur</h1>
 """, unsafe_allow_html=True)
 
-# -------------------- Chat Interface + Upload --------------------
+# -------------------- STATE INIT --------------------
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "uploaded_file" not in st.session_state:
+    st.session_state.uploaded_file = None
+
+# -------------------- INPUT BAR + FILE UPLOADER --------------------
+with st.sidebar:
+    if st.button("➕ Upload File"):
+        st.session_state.uploaded_file = st.file_uploader("", type=["xlsx", "xls", "csv", "json", "txt", "png", "jpg", "jpeg"])
+
 openai_api_key = st.secrets["openai_api_key"] if "openai_api_key" in st.secrets else os.getenv("OPENAI_API_KEY")
 
-uploaded_file = None
-image_file = None
-
-col1, col2 = st.columns([10, 1])
-with col1:
-    user_prompt = st.text_input("Ready when you are")
-with col2:
-    uploaded_file = st.file_uploader("", type=["xlsx", "xls", "csv", "json", "txt", "png", "jpg", "jpeg"], label_visibility="collapsed")
-
 context = ""
-extracted_text = ""
 df = None
 
+uploaded_file = st.session_state.uploaded_file
 if uploaded_file is not None:
     try:
-        if uploaded_file.name.endswith(('.xlsx', '.xls')):
+        if uploaded_file.name.endswith((".xlsx", ".xls")):
             df = pd.read_excel(uploaded_file)
             context = f"Here is a preview of the uploaded Excel file:\n{df.head(10).to_string()}\n"
-        elif uploaded_file.name.endswith('.csv'):
+        elif uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
             context = f"Here is a preview of the uploaded CSV file:\n{df.head(10).to_string()}\n"
-        elif uploaded_file.name.endswith('.json'):
+        elif uploaded_file.name.endswith(".json"):
             df = pd.read_json(uploaded_file)
             context = f"Here is a preview of the uploaded JSON file:\n{df.head(10).to_string()}\n"
-        elif uploaded_file.name.endswith('.txt'):
+        elif uploaded_file.name.endswith(".txt"):
             content = uploaded_file.read().decode("utf-8")
             context = f"Here is the uploaded text:\n{content[:1000]}"
-        elif uploaded_file.name.endswith(('png', 'jpg', 'jpeg')):
+        elif uploaded_file.name.endswith((".png", "jpg", "jpeg")):
             image = Image.open(uploaded_file)
             extracted_text = pytesseract.image_to_string(image)
             st.image(image, caption="Uploaded Image", use_column_width=True)
             context = f"Extracted text from image:\n{extracted_text}"
-            image_file = uploaded_file
     except Exception as e:
         st.error(f"File processing error: {e}")
 
-# Show uploaded DataFrame if available
 if df is not None:
     with st.expander("View Uploaded Data"):
         st.dataframe(df)
 
-# Handle missing data
+# -------------------- MISSING DATA --------------------
 if df is not None:
     st.markdown("---")
     st.subheader("🧼 Step 1: Handling Missing Data")
@@ -86,7 +85,7 @@ if df is not None:
     except Exception as e:
         st.error(f"Missing Data Handling Error: {e}")
 
-# -------------------- LIVE DATA CHECK --------------------
+# -------------------- LIVE FINANCE CHECK --------------------
 def get_live_finance_answer(prompt):
     try:
         words = prompt.lower().split()
@@ -109,17 +108,18 @@ def get_live_finance_answer(prompt):
     except Exception as e:
         return f"Live data error: {e}"
 
-# Chat with Arthur (with or without file)
-if openai_api_key and user_prompt:
+# -------------------- CHAT INPUT --------------------
+user_prompt = st.chat_input("Ready when you are...")
+if user_prompt:
+    st.session_state.messages.append({"role": "user", "content": user_prompt})
+
     try:
         openai.api_key = openai_api_key
         base_instruction = "You are Arthur, an AI assistant who specializes in finance, global economics, global market trading, global macroeconomics, and all tradable markets like forex, stocks, futures, and commodities. Respond with clear and accurate insights based only on your niche."
         full_prompt = context + "\nUser question: " + user_prompt if context else user_prompt
 
-        # Step 1: Try to get live finance answer
         live_answer = get_live_finance_answer(user_prompt)
 
-        # Step 2: Get GPT response
         messages = [
             {"role": "system", "content": base_instruction},
             {"role": "user", "content": full_prompt}
@@ -130,13 +130,17 @@ if openai_api_key and user_prompt:
         )
         reply = response.choices[0].message['content']
 
-        if live_answer:
-            st.markdown(f"**Arthur:** {live_answer}\n\n{reply}")
-        else:
-            st.markdown(f"**Arthur:** {reply}")
+        final_response = f"{live_answer}\n\n{reply}" if live_answer else reply
+        st.session_state.messages.append({"role": "assistant", "content": final_response})
+
     except Exception as e:
         st.error(f"OpenAI API error: {e}")
 
-# Footer
+# -------------------- CHAT DISPLAY --------------------
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# -------------------- FOOTER --------------------
 st.markdown("---")
 st.markdown("Made with ❤️ by Arthur AI")
