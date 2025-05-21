@@ -9,6 +9,7 @@ import io
 import base64
 import openai
 import os
+import yfinance as yf
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
@@ -85,6 +86,29 @@ if df is not None:
     except Exception as e:
         st.error(f"Missing Data Handling Error: {e}")
 
+# -------------------- LIVE DATA CHECK --------------------
+def get_live_finance_answer(prompt):
+    try:
+        words = prompt.lower().split()
+        tickers = [w for w in words if w.isalpha() and len(w) <= 5]
+        if not tickers:
+            return None
+
+        responses = []
+        for ticker in tickers:
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    price = hist['Close'].iloc[-1]
+                    responses.append(f"The latest closing price for **{ticker.upper()}** is **${price:.2f}**.")
+            except Exception:
+                pass
+
+        return "\n".join(responses) if responses else None
+    except Exception as e:
+        return f"Live data error: {e}"
+
 # Chat with Arthur (with or without file)
 if openai_api_key and user_prompt:
     try:
@@ -92,15 +116,24 @@ if openai_api_key and user_prompt:
         base_instruction = "You are Arthur, an AI assistant who specializes in finance, global economics, global market trading, global macroeconomics, and all tradable markets like forex, stocks, futures, and commodities. Respond with clear and accurate insights based only on your niche."
         full_prompt = context + "\nUser question: " + user_prompt if context else user_prompt
 
+        # Step 1: Try to get live finance answer
+        live_answer = get_live_finance_answer(user_prompt)
+
+        # Step 2: Get GPT response
+        messages = [
+            {"role": "system", "content": base_instruction},
+            {"role": "user", "content": full_prompt}
+        ]
         response = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[
-                {"role": "system", "content": base_instruction},
-                {"role": "user", "content": full_prompt}
-            ]
+            messages=messages
         )
         reply = response.choices[0].message['content']
-        st.markdown(f"**Arthur:** {reply}")
+
+        if live_answer:
+            st.markdown(f"**Arthur:** {live_answer}\n\n{reply}")
+        else:
+            st.markdown(f"**Arthur:** {reply}")
     except Exception as e:
         st.error(f"OpenAI API error: {e}")
 
