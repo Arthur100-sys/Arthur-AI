@@ -144,4 +144,3 @@ for msg in st.session_state.messages:
 # -------------------- FOOTER --------------------
 st.markdown("---")
 st.markdown("Made with ❤️ by Arthur AI")
-ccccccccccccccccccccccccccccccccccccccccccccccc
