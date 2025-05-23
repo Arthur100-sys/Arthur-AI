@@ -22,5 +22,5 @@ beautifulsoup4
 pyttsx3
 pytesseract
 Pillow
-openai
+openai>=1.0.0
 yfinance
